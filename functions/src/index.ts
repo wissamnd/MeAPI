@@ -473,6 +473,16 @@ app.get('/getMyMonthlyBuildingBills',(req,res)=>{
         );
 })
 
+// Get Bill Info using its ID
+app.get('/getBillInfo',(req,res)=>{
+    firebaseHelper.firestore.getDocument(db,billsCollection,req.query.billID)
+            .then(async (doc:any)=> {
+            res.status(200).send(doc);
+        }
+        );
+})
+
+
 
 
 
