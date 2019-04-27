@@ -12,6 +12,7 @@ import * as admin from 'firebase-admin';
 import * as firebaseHelper from 'firebase-functions-helper';
 import * as express from 'express';
 import * as bodyParser from "body-parser";
+
 admin.initializeApp(functions.config().firebase);
 const db = admin.firestore(); 
 const app = express();
@@ -26,30 +27,6 @@ main.use(bodyParser.urlencoded({ extended: false }));
 // webApi is your functions name, and you will pass main as 
 // a parameter
 export const webApi = functions.https.onRequest(main);
-
-
-// Add new contact
-// app.post('/adduser', (req, res) => {
-//     if(Object.keys(req.body).length != 0){
-//         if(req.body["fullName"]&&req.body["email"]&&req.body["buildings"]&&req.body["uid"]
-//         &&req.body["phonenumber"]&&req.body["traveling"]&&req.body["about"]
-//         &&req.body["photo"]){
-//             firebaseHelper.firestore.createNewDocument(db, usersCollection, req.body);
-//             res.send(req.body.fullName);
-//         }else{
-//             res.send("Invalid request body ");
-//         }
-//     }else{
-//         res.send("Request body is empty");
-//     }
-// })
-// Update new contact
-// app.patch('/contacts/:contactId', (req, res) => {
-//     firebaseHelper.firestore
-//         .updateDocument(db, contactsCollection, req.params.contactId, req.body);
-//     res.send('Update a new contact');
-// })
-
 
 
 // get the building tenants as a list of Tenants Info
@@ -93,7 +70,6 @@ app.post('/addBill',(req,res) =>{
                     "amount": req.body["amount"],
                     "description": req.body["description"],
                     "label": req.body["label"],
-                    "repeat": req.body["repeat"],
                     "users": req.body["users"],
                     "usersWhoPaid": req.body["usersWhoPaid"],
                     "dueTime": req.body["dueTime"],
@@ -126,6 +102,67 @@ app.post('/addBill',(req,res) =>{
     }
   
 })
+
+// post bills to a building repeating it for 3 months(Must be a manager)
+app.post('/addBillRepeat',(req,res) =>{
+    if(Object.keys(req.body).length != 0){
+        if(req.body["amount"]&&req.body["description"]&&req.body["label"]&&req.body["users"]&&req.body["usersWhoPaid"]&&req.body["dueTime"]){
+            firebaseHelper.firestore.getDocument(db,buildingsCollection,req.query.buildingID)
+            .then(async (doc:any)=> {
+            let array = req.body["dueTime"].split("|");
+            let month  = parseInt(array[0]);
+            let year = parseInt(array[2]);
+            let day = parseInt(array[1]);
+            
+            if(doc.manager === req.query.uid){
+                let i= 0;
+                for(i=0;i < 3;i++){
+                    let reqBody = {
+                        "uid" : "random",
+                        "amount": req.body["amount"],
+                        "description": req.body["description"],
+                        "label": req.body["label"],
+                        "users": req.body["users"],
+                        "usersWhoPaid": req.body["usersWhoPaid"],
+                        "dueTime": month.toString()+"|"+day.toString()+"|"+year.toString(),
+                        "Currency": doc.Currency,
+                    }
+
+                    const listoOfBills = doc.billsID;
+                    // create a new bill in the collection
+                    await firebaseHelper.firestore.createNewDocument(db,billsCollection,reqBody).then(async (docRef:any)=>{
+                        let uidBody={
+                            "uid" : docRef.id
+                        }
+                        await firebaseHelper.firestore.updateDocument(db,billsCollection,docRef.id,uidBody);
+                        await listoOfBills.push(docRef.id);
+                        const billsMap =  await {"billsID": listoOfBills};
+                        // add the bill to the building
+                        await firebaseHelper.firestore.updateDocument(db,buildingsCollection,req.query.buildingID,billsMap);
+                        
+                    });
+                    if(month >= 12){
+                        month = (month - 12)+1
+                    }else{
+                        month = month+ 1;
+                    }
+                }
+                res.status(200).send("Bills are generated");
+               
+            }else{
+                res.status(401).send("Access is denied");
+            }
+        }
+        ); 
+        }else{
+            res.status(401).send("Invalid request body ");
+        }
+    }else{
+        res.status(401).send("Request body is empty");
+    }
+  
+})
+
 
 // Get remaining non occupied building appartments
 app.get('/getNonOccupiedApartments', (req, res) => {
@@ -459,7 +496,7 @@ app.get('/getMyMonthlyBuildingBills',(req,res)=>{
                             let array = BillInfo.dueTime.split("|");
                             let month  = parseInt(array[0]);
                             let year = parseInt(array[2]);
-                            if((month == req.query.month && year == req.query.year)|| BillInfo.repeat){
+                            if((month == req.query.month && year == req.query.year)){
                                 listOfInfo.push(await BillInfo);
                             }
                         }
